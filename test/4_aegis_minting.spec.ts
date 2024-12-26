@@ -370,11 +370,7 @@ describe('AegisMinting', () => {
 
         await expect(aegisMintingContract.depositIncome(order, signature)).to.
           emit(yusdContract, 'Transfer').
-          withArgs(ethers.ZeroAddress, aegisMintingContract, aegisRewardsYUSDRewardsAmount).
-          emit(yusdContract, 'Approval').
-          withArgs(aegisMintingContract, aegisRewardsAddress, aegisRewardsYUSDRewardsAmount).
-          emit(yusdContract, 'Transfer').
-          withArgs(aegisMintingContract, aegisRewardsAddress, aegisRewardsYUSDRewardsAmount).
+          withArgs(ethers.ZeroAddress, aegisRewardsAddress, aegisRewardsYUSDRewardsAmount).
           emit(aegisMintingContract, 'DepositIncome').
           withArgs(snapshotId, owner.address, assetAddress, collateralAmount, aegisRewardsYUSDRewardsAmount, incomeFee, blockTime+1)
 

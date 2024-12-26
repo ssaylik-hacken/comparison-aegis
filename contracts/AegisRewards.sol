@@ -154,11 +154,10 @@ contract AegisRewards is IAegisRewardsEvents, IAegisRewardsErrors, AccessControl
     emit WithdrawExpiredRewards(id, to, amount);
   }
 
-  /// @dev Transfers minted YUSD rewards from AegisMintingContract
+  /// @dev Adds minted YUSD rewards from AegisMintingContract
   function depositRewards(bytes calldata requestId, uint256 amount) external {
     require(_msgSender() == aegisMinting);
 
-    yusd.safeTransferFrom(aegisMinting, address(this), amount);
     bytes32 id = _stringToBytes32(abi.decode(requestId, (string)));
     _rewards[id].amount += amount;
 

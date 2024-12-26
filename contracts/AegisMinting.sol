@@ -419,9 +419,8 @@ contract AegisMinting is IAegisMintingEvents, IAegisMintingErrors, AccessControl
       yusd.mint(insuranceFundAddress, fee);
     }
 
-    // Transfer YUSD rewards to AegisRewards contract
-    yusd.mint(address(this), mintAmount);
-    yusd.approve(address(aegisRewards), mintAmount);
+    // Mint YUSD rewards to AegisRewards contract
+    yusd.mint(address(aegisRewards), mintAmount);
     aegisRewards.depositRewards(order.additionalData, mintAmount);
 
     emit DepositIncome(

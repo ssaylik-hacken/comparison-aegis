@@ -4,16 +4,20 @@ import { expect } from 'chai'
 
 import {
   REWARDS_MANAGER_ROLE,
+  OrderType,
   deployFixture,
   encodeString,
   signClaimRequest,
   signClaimRequestByWallet,
+  signOrder,
+  FUNDS_MANAGER_ROLE,
+  SETTINGS_MANAGER_ROLE,
 } from './helpers'
 
 describe('AegisRewards', () => {
   describe('#depositRewards', () => {
     describe('success', () => {
-      it('should transfer rewards from caller address', async () => {
+      it('should add rewards to a total amount', async () => {
         const [owner] = await ethers.getSigners()
         const { aegisRewardsContract, yusdContract } = await loadFixture(deployFixture)
 
@@ -46,25 +50,56 @@ describe('AegisRewards', () => {
     describe('success', () => {
       it('should claim rewards to account', async () => {
         const [owner] = await ethers.getSigners()
-        const { aegisRewardsContract, aegisRewardsAddress, yusdContract } = await loadFixture(deployFixture)
+        const { aegisMintingContract, aegisMintingAddress, aegisRewardsContract, aegisRewardsAddress, assetContract, assetAddress, yusdContract } = await loadFixture(deployFixture)
 
-        await yusdContract.setMinter(owner.address)
-        await aegisRewardsContract.setAegisMintingAddress(owner)
+        await aegisMintingContract.grantRole(FUNDS_MANAGER_ROLE, owner)
+        await aegisMintingContract.grantRole(SETTINGS_MANAGER_ROLE, owner)
         await aegisRewardsContract.grantRole(REWARDS_MANAGER_ROLE, owner)
+        await aegisMintingContract.setInsuranceFundAddress(ethers.ZeroAddress)
 
         const snapshotId = 'test'
         const amount = ethers.parseEther('2')
-        await yusdContract.mint(owner, amount)
-        await yusdContract.approve(aegisRewardsContract, amount)
-        await aegisRewardsContract.depositRewards(encodeString(snapshotId), amount)
-        await aegisRewardsContract.finalizeRewards(ethers.encodeBytes32String(snapshotId), 0)
+        {
+          await assetContract.mint(aegisMintingAddress, amount)
+          const order = {
+            orderType: OrderType.DEPOSIT_INCOME,
+            userWallet: owner.address,
+            beneficiary: ethers.ZeroAddress,
+            collateralAsset: assetAddress,
+            collateralAmount: amount,
+            yusdAmount: amount,
+            slippageAdjustedAmount: 0,
+            expiry: (await time.latest()) + 10000,
+            nonce: Date.now(),
+            additionalData: encodeString(snapshotId),
+          }
+          const signature = await signOrder(order, aegisMintingAddress)
+
+          await aegisMintingContract.depositIncome(order, signature)
+          await aegisRewardsContract.finalizeRewards(ethers.encodeBytes32String(snapshotId), 0)
+        }
 
         const snapshot2Id = 'test2'
         const amount2 = ethers.parseEther('2')
-        await yusdContract.mint(owner, amount2)
-        await yusdContract.approve(aegisRewardsContract, amount2)
-        await aegisRewardsContract.depositRewards(encodeString(snapshot2Id), amount2)
-        await aegisRewardsContract.finalizeRewards(ethers.encodeBytes32String(snapshot2Id), 0)
+        {
+          await assetContract.mint(aegisMintingAddress, amount2)
+          const order = {
+            orderType: OrderType.DEPOSIT_INCOME,
+            userWallet: owner.address,
+            beneficiary: ethers.ZeroAddress,
+            collateralAsset: assetAddress,
+            collateralAmount: amount2,
+            yusdAmount: amount2,
+            slippageAdjustedAmount: 0,
+            expiry: (await time.latest()) + 10000,
+            nonce: Date.now(),
+            additionalData: encodeString(snapshot2Id),
+          }
+          const signature = await signOrder(order, aegisMintingAddress)
+
+          await aegisMintingContract.depositIncome(order, signature)
+          await aegisRewardsContract.finalizeRewards(ethers.encodeBytes32String(snapshot2Id), 0)
+        }
 
         const contractYUSDBalanceBefore = await yusdContract.balanceOf(aegisRewardsAddress)
         const userYUSDBalanceBefore = await yusdContract.balanceOf(owner.address)
@@ -181,19 +216,34 @@ describe('AegisRewards', () => {
 
       it('should revert when snapshot rewards are zero', async () => {
         const [owner] = await ethers.getSigners()
-        const { aegisRewardsContract, aegisRewardsAddress, yusdContract } = await loadFixture(deployFixture)
+        const { aegisMintingContract, aegisMintingAddress, aegisRewardsContract, aegisRewardsAddress, assetContract, assetAddress } = await loadFixture(deployFixture)
 
-        await yusdContract.setMinter(owner.address)
-        await aegisRewardsContract.setAegisMintingAddress(owner)
+        await aegisMintingContract.grantRole(FUNDS_MANAGER_ROLE, owner)
+        await aegisMintingContract.grantRole(SETTINGS_MANAGER_ROLE, owner)
+        await aegisRewardsContract.grantRole(REWARDS_MANAGER_ROLE, owner.address)
+        await aegisMintingContract.setInsuranceFundAddress(ethers.ZeroAddress)
 
         const snapshotId = 'test'
         const amount = ethers.parseEther('1')
-        await yusdContract.mint(owner, amount)
-        await yusdContract.approve(aegisRewardsContract, amount)
-        await aegisRewardsContract.depositRewards(encodeString(snapshotId), amount)
+        {
+          await assetContract.mint(aegisMintingAddress, amount)
+          const order = {
+            orderType: OrderType.DEPOSIT_INCOME,
+            userWallet: owner.address,
+            beneficiary: ethers.ZeroAddress,
+            collateralAsset: assetAddress,
+            collateralAmount: amount,
+            yusdAmount: amount,
+            slippageAdjustedAmount: 0,
+            expiry: (await time.latest()) + 10000,
+            nonce: Date.now(),
+            additionalData: encodeString(snapshotId),
+          }
+          const signature = await signOrder(order, aegisMintingAddress)
 
-        await aegisRewardsContract.grantRole(REWARDS_MANAGER_ROLE, owner.address)
-        await aegisRewardsContract.finalizeRewards(ethers.encodeBytes32String(snapshotId), 0)
+          await aegisMintingContract.depositIncome(order, signature)
+          await aegisRewardsContract.finalizeRewards(ethers.encodeBytes32String(snapshotId), 0)
+        }
 
         const claimRequest = {
           claimer: owner.address,
@@ -210,19 +260,34 @@ describe('AegisRewards', () => {
 
       it('should revert when rewards were already claimed by an address', async () => {
         const [owner] = await ethers.getSigners()
-        const { aegisRewardsContract, aegisRewardsAddress, yusdContract } = await loadFixture(deployFixture)
+        const { aegisMintingContract, aegisMintingAddress, aegisRewardsContract, aegisRewardsAddress, assetContract, assetAddress } = await loadFixture(deployFixture)
 
-        await yusdContract.setMinter(owner.address)
-        await aegisRewardsContract.setAegisMintingAddress(owner)
+        await aegisMintingContract.grantRole(FUNDS_MANAGER_ROLE, owner)
+        await aegisMintingContract.grantRole(SETTINGS_MANAGER_ROLE, owner)
+        await aegisRewardsContract.grantRole(REWARDS_MANAGER_ROLE, owner.address)
+        await aegisMintingContract.setInsuranceFundAddress(ethers.ZeroAddress)
 
         const snapshotId = 'test'
         const amount = ethers.parseEther('2')
-        await yusdContract.mint(owner, amount)
-        await yusdContract.approve(aegisRewardsContract, amount)
-        await aegisRewardsContract.depositRewards(encodeString(snapshotId), amount)
+        {
+          await assetContract.mint(aegisMintingAddress, amount)
+          const order = {
+            orderType: OrderType.DEPOSIT_INCOME,
+            userWallet: owner.address,
+            beneficiary: ethers.ZeroAddress,
+            collateralAsset: assetAddress,
+            collateralAmount: amount,
+            yusdAmount: amount,
+            slippageAdjustedAmount: 0,
+            expiry: (await time.latest()) + 10000,
+            nonce: Date.now(),
+            additionalData: encodeString(snapshotId),
+          }
+          const signature = await signOrder(order, aegisMintingAddress)
 
-        await aegisRewardsContract.grantRole(REWARDS_MANAGER_ROLE, owner.address)
-        await aegisRewardsContract.finalizeRewards(ethers.encodeBytes32String(snapshotId), 0)
+          await aegisMintingContract.depositIncome(order, signature)
+          await aegisRewardsContract.finalizeRewards(ethers.encodeBytes32String(snapshotId), 0)
+        }
 
         const claimRequest = {
           claimer: owner.address,
@@ -286,26 +351,40 @@ describe('AegisRewards', () => {
     describe('success', () => {
       it('should withdraw expired rewards', async () => {
         const [owner] = await ethers.getSigners()
-        const { aegisRewardsContract, yusdContract } = await loadFixture(deployFixture)
+        const { aegisMintingContract, aegisMintingAddress, aegisRewardsContract, assetContract, assetAddress } = await loadFixture(deployFixture)
 
-        await yusdContract.setMinter(owner.address)
-        await aegisRewardsContract.setAegisMintingAddress(owner)
-
-        await aegisRewardsContract.grantRole(REWARDS_MANAGER_ROLE, owner)
+        await aegisMintingContract.grantRole(FUNDS_MANAGER_ROLE, owner)
+        await aegisMintingContract.grantRole(SETTINGS_MANAGER_ROLE, owner)
+        await aegisRewardsContract.grantRole(REWARDS_MANAGER_ROLE, owner.address)
+        await aegisMintingContract.setInsuranceFundAddress(ethers.ZeroAddress)
 
         const snapshotId = 'test'
         const amount = ethers.parseEther('2')
-        await yusdContract.mint(owner, amount)
-        await yusdContract.approve(aegisRewardsContract, amount)
-        await aegisRewardsContract.depositRewards(encodeString(snapshotId), amount)
+        {
+          await assetContract.mint(aegisMintingAddress, amount)
+          const order = {
+            orderType: OrderType.DEPOSIT_INCOME,
+            userWallet: owner.address,
+            beneficiary: ethers.ZeroAddress,
+            collateralAsset: assetAddress,
+            collateralAmount: amount,
+            yusdAmount: amount,
+            slippageAdjustedAmount: 0,
+            expiry: (await time.latest()) + 10000,
+            nonce: Date.now(),
+            additionalData: encodeString(snapshotId),
+          }
+          const signature = await signOrder(order, aegisMintingAddress)
 
-        const bytes32SnapshotId = ethers.encodeBytes32String(snapshotId)
-        await expect(aegisRewardsContract.finalizeRewards(bytes32SnapshotId, 1)).not.to.be.reverted
+          await aegisMintingContract.depositIncome(order, signature)
+          await aegisRewardsContract.finalizeRewards(ethers.encodeBytes32String(snapshotId), 1)
+        }
+
         await time.increase(2)
 
-        await expect(aegisRewardsContract.withdrawExpiredRewards(bytes32SnapshotId, owner.address)).to.
+        await expect(aegisRewardsContract.withdrawExpiredRewards(ethers.encodeBytes32String(snapshotId), owner.address)).to.
           emit(aegisRewardsContract, 'WithdrawExpiredRewards').
-          withArgs(bytes32SnapshotId, owner.address, amount)
+          withArgs(ethers.encodeBytes32String(snapshotId), owner.address, amount)
       })
     })
 
@@ -330,27 +409,40 @@ describe('AegisRewards', () => {
 
       it('should revert when amount equals to zero', async () => {
         const [owner] = await ethers.getSigners()
-        const { aegisRewardsContract, yusdContract } = await loadFixture(deployFixture)
+        const { aegisMintingContract, aegisMintingAddress, aegisRewardsContract, assetContract, assetAddress } = await loadFixture(deployFixture)
 
-        await yusdContract.setMinter(owner.address)
-        await aegisRewardsContract.setAegisMintingAddress(owner)
-
-        await aegisRewardsContract.grantRole(REWARDS_MANAGER_ROLE, owner)
+        await aegisMintingContract.grantRole(FUNDS_MANAGER_ROLE, owner)
+        await aegisMintingContract.grantRole(SETTINGS_MANAGER_ROLE, owner)
+        await aegisRewardsContract.grantRole(REWARDS_MANAGER_ROLE, owner.address)
+        await aegisMintingContract.setInsuranceFundAddress(ethers.ZeroAddress)
 
         const snapshotId = 'test'
         const amount = ethers.parseEther('2')
-        await yusdContract.mint(owner, amount)
-        await yusdContract.approve(aegisRewardsContract, amount)
-        await aegisRewardsContract.depositRewards(encodeString(snapshotId), amount)
+        {
+          await assetContract.mint(aegisMintingAddress, amount)
+          const order = {
+            orderType: OrderType.DEPOSIT_INCOME,
+            userWallet: owner.address,
+            beneficiary: ethers.ZeroAddress,
+            collateralAsset: assetAddress,
+            collateralAmount: amount,
+            yusdAmount: amount,
+            slippageAdjustedAmount: 0,
+            expiry: (await time.latest()) + 10000,
+            nonce: Date.now(),
+            additionalData: encodeString(snapshotId),
+          }
+          const signature = await signOrder(order, aegisMintingAddress)
 
-        const bytes32SnapshotId = ethers.encodeBytes32String(snapshotId)
-        await expect(aegisRewardsContract.finalizeRewards(bytes32SnapshotId, 1)).not.to.be.reverted
+          await aegisMintingContract.depositIncome(order, signature)
+          await aegisRewardsContract.finalizeRewards(ethers.encodeBytes32String(snapshotId), 1)
+        }
 
         await time.increase(2)
 
-        await expect(aegisRewardsContract.withdrawExpiredRewards(bytes32SnapshotId, owner.address)).not.to.be.reverted
+        await expect(aegisRewardsContract.withdrawExpiredRewards(ethers.encodeBytes32String(snapshotId), owner.address)).not.to.be.reverted
 
-        await expect(aegisRewardsContract.withdrawExpiredRewards(bytes32SnapshotId, owner.address)).to.be.
+        await expect(aegisRewardsContract.withdrawExpiredRewards(ethers.encodeBytes32String(snapshotId), owner.address)).to.be.
           revertedWithCustomError(aegisRewardsContract, 'UnknownRewards')
       })
 
